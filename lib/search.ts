@@ -23,7 +23,11 @@ export async function findCandidates(p: Prefs, r: Resolved, opts: Opts, get: Tmd
   const skip = new Set([...opts.excludeIds, ...r.likeMovieIds]);
   const out: TmdbMovie[] = [];
   const add = (movies: TmdbMovie[]) => {
-    for (const m of movies) if (!skip.has(m.id)) (skip.add(m.id), out.push(m));
+    for (const m of movies) {
+      if (skip.has(m.id)) continue;
+      skip.add(m.id);
+      out.push(m);
+    }
   };
 
   if (opts.trending) {
