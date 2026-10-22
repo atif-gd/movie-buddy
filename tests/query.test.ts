@@ -42,7 +42,7 @@ describe("buildDiscoverParams", () => {
 
   test("kid safe and max certification", () => {
     expect(buildDiscoverParams({ ...emptyPrefs(), kidSafe: true }, emptyResolved(), "GB"))
-      .toMatchObject({ certification_country: "GB", "certification.lte": "PG" });
+      .toMatchObject({ certification_country: "US", "certification.lte": "PG" }); // US system everywhere (I3)
     expect(buildDiscoverParams({ ...emptyPrefs(), kidSafe: true, maxCertification: "PG-13" }, emptyResolved(), "US")["certification.lte"]).toBe("PG-13");
   });
 

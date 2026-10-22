@@ -9,7 +9,8 @@ import { movie, noChange } from "./helpers";
 const candidates = [1, 2, 3, 4, 5, 6].map((id) => movie(id));
 
 function deps(opts: { delta?: Partial<PrefsDelta>; pickIds?: number[]; discover?: unknown[] } = {}) {
-  const tmdb = async (path: string, _params: TmdbParams = {}) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const tmdb = async (path: string, _params?: TmdbParams): Promise<unknown> => {
     if (path === "/genre/movie/list") return { genres: [{ id: 35, name: "Comedy" }, { id: 10751, name: "Family" }] };
     if (path === "/discover/movie") return { results: opts.discover ?? candidates };
     if (path.startsWith("/search/")) return { results: [] };
@@ -118,5 +119,48 @@ describe("handleMessage", () => {
     expect(s.region).toBe("GB");
     const discover = d.get.mock.calls.find((c) => c[0] === "/discover/movie")!;
     expect(discover[1]).toMatchObject({ region: "GB" });
+  });
+
+  test("small talk after picks gets a short reply, no new cards (I5)", async () => {
+    const s = newSession("a", "US");
+    await handleMessage(s, "comedy", deps({ delta: { genres: ["Comedy"] } }));
+    const d = deps({ delta: { intent: "other" } });
+    d.question.mockResolvedValueOnce("Enjoy the movie!");
+    const out = await handleMessage(s, "thanks, I'll watch #2!", d);
+    expect(out).toEqual({ message: "Enjoy the movie!", movies: [], followUp: null });
+    expect(d.question).toHaveBeenCalledWith(expect.objectContaining({ topic: "smallTalk" }));
+    expect(d.picks).not.toHaveBeenCalled();
+  });
+
+  test("relaxed results are flagged to the recommender (I4)", async () => {
+    const s = newSession("a", "US");
+    const d = deps({ delta: { genres: ["Comedy"], minRating: 9 } });
+    d.get.mockImplementation(async (path: string, params: TmdbParams = {}) => {
+      if (path === "/genre/movie/list") return { genres: [{ id: 35, name: "Comedy" }] };
+      if (path === "/discover/movie") return { results: "vote_average.gte" in params ? [] : candidates };
+      return { "watch/providers": { results: {} } };
+    });
+    await handleMessage(s, "great comedy", d);
+    expect(d.picks).toHaveBeenCalledWith(expect.objectContaining({ relaxed: true }));
+  });
+
+  test("failed detail call keeps the pick with no providers (M2)", async () => {
+    const s = newSession("a", "US");
+    const d = deps({ delta: { genres: ["Comedy"] } });
+    const base = d.get.getMockImplementation()!;
+    d.get.mockImplementation(async (path: string, params?: TmdbParams) => {
+      if (path === "/movie/2") throw new Error("timeout");
+      return base(path, params);
+    });
+    const out = await handleMessage(s, "comedy", d);
+    expect(out.movies.map((m) => [m.id, m.providers])).toEqual([[1, ["Netflix"]], [2, []], [3, ["Netflix"]]]);
+  });
+
+  test("empty question text falls back to a fixed question (M3)", async () => {
+    const s = newSession("a", "US");
+    const d = deps();
+    d.question.mockResolvedValueOnce("  ");
+    const out = await handleMessage(s, "hi", d);
+    expect(out.message).toBe("What's a movie you loved recently?");
   });
 });

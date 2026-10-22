@@ -7,7 +7,7 @@ import type { Session } from "@/lib/session";
 // Gemini supports Chat Completions there (not the Responses API), and tracing
 // would upload to OpenAI, so it is off.
 let configured = false;
-function useGemini() {
+function configureGemini() {
   if (configured) return;
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
@@ -18,7 +18,7 @@ function useGemini() {
 }
 
 export const model = () => {
-  useGemini();
+  configureGemini();
   return process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
 };
 

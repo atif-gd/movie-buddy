@@ -19,7 +19,17 @@ function matchesHard(m: TmdbMovie, p: Prefs, r: Resolved) {
   return true;
 }
 
-export async function findCandidates(p: Prefs, r: Resolved, opts: Opts, get: TmdbGet): Promise<TmdbMovie[]> {
+// Constraints that list items can't show (age rating, streaming, keywords):
+// only /discover can enforce them, so the shortcut endpoints are skipped.
+function hasStrict(p: Prefs, r: Resolved) {
+  return !!(p.kidSafe || p.maxCertification || r.providerIds.length || p.monetization.length || r.excludeKeywordIds.length);
+}
+
+const MAX_PAGES = 3;
+
+export async function findCandidates(
+  p: Prefs, r: Resolved, opts: Opts, get: TmdbGet,
+): Promise<{ movies: TmdbMovie[]; relaxed: boolean }> {
   const skip = new Set([...opts.excludeIds, ...r.likeMovieIds]);
   const out: TmdbMovie[] = [];
   const add = (movies: TmdbMovie[]) => {
@@ -29,23 +39,34 @@ export async function findCandidates(p: Prefs, r: Resolved, opts: Opts, get: Tmd
       out.push(m);
     }
   };
+  const strict = hasStrict(p, r);
 
-  if (opts.trending) {
-    add((await get("/trending/movie/week")).results);
-    return out.slice(0, LIMIT);
+  if (opts.trending && !strict) {
+    add((await get("/trending/movie/week")).results.filter((m: TmdbMovie) => matchesHard(m, p, r)));
+    return { movies: out.slice(0, LIMIT), relaxed: false };
   }
 
-  for (const id of r.likeMovieIds) {
-    add((await get(`/movie/${id}/recommendations`)).results.filter((m: TmdbMovie) => matchesHard(m, p, r)));
+  if (!strict) {
+    for (const id of r.likeMovieIds) {
+      add((await get(`/movie/${id}/recommendations`)).results.filter((m: TmdbMovie) => matchesHard(m, p, r)));
+    }
   }
 
+  let relaxed = false;
   const tried = new Set<string>();
   for (let level = 0; level <= MAX_RELAX && out.length < ENOUGH; level++) {
     const params = buildDiscoverParams(p, r, opts.region, level);
     const key = JSON.stringify(params);
     if (tried.has(key)) continue;
     tried.add(key);
-    add((await get("/discover/movie", params)).results);
+    // More pages at the same strictness before loosening anything.
+    for (let page = 1; page <= MAX_PAGES && out.length < ENOUGH; page++) {
+      const before = out.length;
+      const res = await get("/discover/movie", { ...params, page });
+      add(res.results);
+      if (level > 0 && out.length > before) relaxed = true;
+      if (page >= (res.total_pages ?? 1)) break;
+    }
   }
-  return out.slice(0, LIMIT);
+  return { movies: out.slice(0, LIMIT), relaxed };
 }

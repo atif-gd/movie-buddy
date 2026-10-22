@@ -60,8 +60,9 @@ export function buildDiscoverParams(p: Prefs, r: Resolved, region: string, relax
 
   set("without_genres", r.excludeGenreIds.join(","));
   set("without_keywords", r.excludeKeywordIds.join(","));
+  // Always the US rating system: "PG"/"PG-13" don't exist in most other countries' lists.
   if (p.kidSafe || p.maxCertification) {
-    q.certification_country = region;
+    q.certification_country = "US";
     q["certification.lte"] = p.maxCertification ?? "PG";
   }
   if (r.providerIds.length || p.monetization.length) {
