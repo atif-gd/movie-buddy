@@ -36,3 +36,12 @@ export function emptyResolved(): Resolved {
     companyIds: [], providerIds: [], likeMovieIds: [], soft: null,
   };
 }
+
+import type { TmdbMovie } from "@/lib/tmdb/client";
+
+export function movie(id: number, extra: Partial<TmdbMovie> = {}): TmdbMovie {
+  return {
+    id, title: `Movie ${id}`, release_date: "2000-01-01", vote_average: 7, vote_count: 500,
+    genre_ids: [35], poster_path: null, overview: "", ...extra,
+  };
+}
