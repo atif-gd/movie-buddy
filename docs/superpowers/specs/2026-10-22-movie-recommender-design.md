@@ -53,7 +53,10 @@ its effort into extraction and smart questioning, not into the UI.
   conversation.)*
 - **Session storage:** in server memory, keyed by a session ID (cookie or
   client-generated ID). Lost on restart. That is fine for now.
-- **Secrets:** `OPENAI_API_KEY` and `TMDB_API_KEY` (or TMDB read access
+- **Model provider:** Google Gemini (user has a Gemini key), used through the
+  OpenAI Agents SDK via Gemini's OpenAI-compatible endpoint (Chat Completions).
+  Model set by `GEMINI_MODEL`, default `gemini-2.5-flash`.
+- **Secrets:** `GEMINI_API_KEY` and `TMDB_API_KEY` (or TMDB read access
   token) from environment variables. Never sent to the browser.
 - **TMDB terms:** the app must show TMDB attribution (logo or text "This
   product uses the TMDB API but is not endorsed or certified by TMDB").
