@@ -27,3 +27,12 @@ export function fakeTmdb(routes: Record<string, unknown>) {
   };
   return { get, calls };
 }
+
+import type { Resolved } from "@/lib/tmdb/resolve";
+
+export function emptyResolved(): Resolved {
+  return {
+    genreIds: [], excludeGenreIds: [], keywordIds: [], excludeKeywordIds: [], castIds: [], crewIds: [],
+    companyIds: [], providerIds: [], likeMovieIds: [], soft: null,
+  };
+}
