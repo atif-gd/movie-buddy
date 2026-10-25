@@ -33,9 +33,23 @@ const FALLBACK_QUESTION = {
 export async function handleMessage(session: Session, text: string, deps: Deps): Promise<ChatReply> {
   const s = structuredClone(session);
 
-  const delta = await deps.extract({
+  // Per-step timings, logged once per turn to find slow steps.
+  const start = performance.now();
+  const times: Record<string, number> = {};
+  const timed = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const t = performance.now();
+    try {
+      return await fn();
+    } finally {
+      times[label] = Math.round(performance.now() - t);
+    }
+  };
+  let tmdbCalls = 0;
+  const get: TmdbGet = (path, params) => (tmdbCalls++, deps.get(path, params));
+
+  const delta = await timed("extract", () => deps.extract({
     message: text, history: s.history, prefs: s.prefs, shownTitles: s.lastPicks, hasRecommended: s.hasRecommended,
-  });
+  }));
   s.prefs = mergePrefs(s.prefs, delta);
   if (s.prefs.watchRegion) s.region = s.prefs.watchRegion;
   if (delta.intent === "new_search") {
@@ -44,12 +58,12 @@ export async function handleMessage(session: Session, text: string, deps: Deps):
     s.questionLimit = 1;
   }
 
-  const resolved = await resolvePrefs(s.prefs, s.region, deps.get);
+  const resolved = await timed("resolve", () => resolvePrefs(s.prefs, s.region, get));
   s.soft = resolved.soft;
   const ready = score(s.prefs, resolved.soft) >= THRESHOLD;
 
   const ask = async (topic: Topic): Promise<ChatReply> => {
-    const text = (await deps.question({ topic, history: s.history, prefs: s.prefs })).trim();
+    const text = (await timed("question", () => deps.question({ topic, history: s.history, prefs: s.prefs }))).trim();
     return { message: text || FALLBACK_QUESTION[topic], movies: [], followUp: null };
   };
 
@@ -61,9 +75,9 @@ export async function handleMessage(session: Session, text: string, deps: Deps):
     s.questionsAsked++;
   } else {
     const trending = TRENDING.test(text) && score(s.prefs, resolved.soft) === 0;
-    const { movies: candidates, relaxed } = await findCandidates(
-      s.prefs, resolved, { region: s.region, excludeIds: [...s.shownIds, ...s.seenIds], trending }, deps.get,
-    );
+    const { movies: candidates, relaxed } = await timed("search", () => findCandidates(
+      s.prefs, resolved, { region: s.region, excludeIds: [...s.shownIds, ...s.seenIds], trending }, get,
+    ));
     const seen = new Set(s.prefs.seenMovies.map((t) => t.toLowerCase()));
     s.seenIds.push(...candidates.filter((m) => seen.has(m.title.toLowerCase())).map((m) => m.id));
     const usable = candidates.filter((m) => !seen.has(m.title.toLowerCase()));
@@ -71,14 +85,14 @@ export async function handleMessage(session: Session, text: string, deps: Deps):
     if (!usable.length) {
       reply = { message: NO_MATCH, movies: [], followUp: null };
     } else {
-      const out = await deps.picks({ message: text, history: s.history, prefs: s.prefs, candidates: usable, relaxed });
+      const out = await timed("picks", () => deps.picks({ message: text, history: s.history, prefs: s.prefs, candidates: usable, relaxed }));
       const byId = new Map(usable.map((m) => [m.id, m]));
       const kept = out.picks.filter((p, i, all) => byId.has(p.id) && all.findIndex((q) => q.id === p.id) === i).slice(0, MAX_PICKS);
-      const movies = await Promise.all(
+      const movies = await timed("providers", () => Promise.all(
         kept.map(async ({ id, why }): Promise<MovieCard> => {
           const m = byId.get(id)!;
           // Providers are a nice-to-have: a failed detail call must not lose the picks.
-          const details = await deps.get(`/movie/${id}`, { append_to_response: "watch/providers" }).catch(() => null);
+          const details = await get(`/movie/${id}`, { append_to_response: "watch/providers" }).catch(() => null);
           const flatrate: { provider_name: string }[] = details?.["watch/providers"]?.results?.[s.region]?.flatrate ?? [];
           return {
             id, title: m.title, year: m.release_date?.slice(0, 4) ?? "", rating: m.vote_average, why,
@@ -86,7 +100,7 @@ export async function handleMessage(session: Session, text: string, deps: Deps):
             providers: flatrate.map((p) => p.provider_name),
           };
         }),
-      );
+      ));
       reply = movies.length ? { message: out.message, movies, followUp: out.followUp } : { message: NO_MATCH, movies: [], followUp: null };
       s.shownIds.push(...movies.map((m) => m.id));
       s.shownTitles.push(...movies.map((m) => m.title));
@@ -100,6 +114,9 @@ export async function handleMessage(session: Session, text: string, deps: Deps):
     { role: "user", text },
     { role: "assistant", text: [reply.message, titles && `Picks: ${titles}`, reply.followUp].filter(Boolean).join("\n") },
   );
+  if (process.env.NODE_ENV !== "test") {
+    console.log("[chat timing]", JSON.stringify({ ...times, tmdbCalls, total: Math.round(performance.now() - start) }));
+  }
   Object.assign(session, s);
   return reply;
 }
